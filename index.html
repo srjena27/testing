@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>z/OS Mainframe Performance Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-card: #0f3460;
+    --accent: #e94560;
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0b0;
+    --success: #00d4aa;
+    --warning: #ffc107;
+    --danger: #ff4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+  header {
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--accent);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  header h1 { font-size: 1.5rem; color: #ffffff; letter-spacing: 0.5px; }
+  header p { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.25rem; }
+  .header-right { font-size: 0.82rem; color: var(--text-secondary); text-align: right; }
+  .header-right span { color: var(--success); font-weight: 600; }
+  #filters {
+    background: var(--bg-secondary);
+    padding: 1rem 1.5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: flex-end;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .filter-group { display: flex; flex-direction: column; gap: 0.3rem; min-width: 130px; }
+  .filter-group label { font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+  .filter-group select,
+  .filter-group input[type="date"],
+  .filter-group input[type="text"] {
+    background: var(--bg-card);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-primary);
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .filter-group select:focus,
+  .filter-group input:focus { border-color: var(--accent); }
+  .filter-group select option { background: var(--bg-secondary); }
+  #resetBtn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 0.5rem 1.2rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    align-self: flex-end;
+    transition: opacity 0.2s;
+  }
+  #resetBtn:hover { opacity: 0.85; }
+  #kpi-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    padding: 1.25rem 1.5rem 0.5rem;
+  }
+  @media (max-width: 900px) { #kpi-cards { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 500px) { #kpi-cards { grid-template-columns: 1fr; } }
+  .kpi-card {
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    border: 1px solid rgba(255,255,255,0.06);
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .kpi-card:hover { transform: translateY(-2px); box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+  .kpi-icon { font-size: 2rem; line-height: 1; }
+  .kpi-info { flex: 1; }
+  .kpi-label { font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+  .kpi-value { font-size: 1.8rem; font-weight: 700; line-height: 1.2; transition: color 0.3s; }
+  .kpi-subtitle { font-size: 0.72rem; color: var(--text-secondary); margin-top: 0.15rem; }
+  .color-green { color: var(--success); }
+  .color-yellow { color: var(--warning); }
+  .color-red { color: var(--danger); }
+  #charts-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+  }
+  @media (max-width: 768px) { #charts-grid { grid-template-columns: 1fr; } }
+  .chart-card {
+    background: var(--bg-card);
+    border-radius: 8px;
+    padding: 1.1rem;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .chart-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .chart-wrapper { position: relative; height: 350px; }
+  .chart-wrapper-heatmap { position: relative; height: auto; min-height: 250px; }
+  #heatmapCanvas { width: 100%; display: block; }
+  #table-section {
+    padding: 1rem 1.5rem 1.5rem;
+  }
+  .table-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .table-title { font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+  .table-controls { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+  #tableSearch {
+    background: var(--bg-card);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-primary);
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    outline: none;
+    width: 220px;
+  }
+  #tableSearch:focus { border-color: var(--accent); }
+  #recordCount { font-size: 0.8rem; color: var(--text-secondary); }
+  .table-container { overflow-x: auto; border-radius: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  thead { background: var(--bg-secondary); position: sticky; top: 0; z-index: 2; }
+  thead th {
+    padding: 0.7rem 0.75rem;
+    text-align: left;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    border-bottom: 2px solid rgba(255,255,255,0.08);
+    transition: color 0.2s;
+  }
+  thead th:hover { color: var(--text-primary); }
+  thead th.sort-asc::after { content: ' ▲'; color: var(--accent); }
+  thead th.sort-desc::after { content: ' ▼'; color: var(--accent); }
+  tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.15s; }
+  tbody tr:hover { background: rgba(255,255,255,0.04); }
+  tbody td { padding: 0.55rem 0.75rem; color: var(--text-primary); white-space: nowrap; }
+  .alert-normal { background: rgba(0,212,170,0.1); color: var(--success); border-radius: 3px; padding: 0.15rem 0.4rem; }
+  .alert-warning { background: rgba(255,193,7,0.12); color: var(--warning); border-radius: 3px; padding: 0.15rem 0.4rem; }
+  .alert-critical { background: rgba(255,68,68,0.12); color: var(--danger); border-radius: 3px; padding: 0.15rem 0.4rem; }
+  .cpu-green { color: var(--success); font-weight: 600; }
+  .cpu-yellow { color: var(--warning); font-weight: 600; }
+  .cpu-red { color: var(--danger); font-weight: 600; }
+  footer {
+    background: var(--bg-secondary);
+    border-top: 1px solid rgba(255,255,255,0.06);
+    padding: 1rem 1.5rem;
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+  }
+  .section-divider { padding: 0 1.5rem 0.25rem; }
+  .section-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    padding: 0.75rem 0 0.25rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    margin-bottom: 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1>⚙️ z/OS Mainframe Performance Dashboard</h1>
+    <p>Real-time System Monitoring — March 2026</p>
+  </div>
+  <div class="header-right">
+    Last Updated: <span id="lastUpdated"></span>
+  </div>
+</header>
+
+<div id="filters">
+  <div class="filter-group">
+    <label>System Name</label>
+    <select id="fSystem" onchange="updateDashboard()">
+      <option value="">All Systems</option>
+      <option value="ZOS1">ZOS1</option>
+      <option value="ZOS2">ZOS2</option>
+      <option value="ZOS3">ZOS3</option>
+      <option value="ZOS4">ZOS4</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Environment</label>
+    <select id="fEnv" onchange="updateDashboard()">
+      <option value="">All Environments</option>
+      <option value="Production">Production</option>
+      <option value="Test">Test</option>
+      <option value="UAT">UAT</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>App Type</label>
+    <select id="fAppType" onchange="updateDashboard()">
+      <option value="">All Types</option>
+      <option value="CICS">CICS</option>
+      <option value="DB2">DB2</option>
+      <option value="IMS">IMS</option>
+      <option value="MQ Series">MQ Series</option>
+      <option value="Batch">Batch</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Shift</label>
+    <select id="fShift" onchange="updateDashboard()">
+      <option value="">All Shifts</option>
+      <option value="Night">Night</option>
+      <option value="Morning">Morning</option>
+      <option value="Afternoon">Afternoon</option>
+      <option value="Evening">Evening</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Alert Level</label>
+    <select id="fAlert" onchange="updateDashboard()">
+      <option value="">All Levels</option>
+      <option value="Normal">Normal</option>
+      <option value="Warning">Warning</option>
+      <option value="Critical">Critical</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <label>Date From</label>
+    <input type="date" id="fDateFrom" value="2026-03-01" min="2026-03-01" max="2026-03-06" oninput="updateDashboard()">
+  </div>
+  <div class="filter-group">
+    <label>Date To</label>
+    <input type="date" id="fDateTo" value="2026-03-06" min="2026-03-01" max="2026-03-06" oninput="updateDashboard()">
+  </div>
+  <button id="resetBtn" onclick="resetFilters()">⟳ Reset Filters</button>
+</div>
+
+<div id="kpi-cards">
+  <div class="kpi-card">
+    <div class="kpi-icon">⚡</div>
+    <div class="kpi-info">
+      <div class="kpi-label">Avg CPU %</div>
+      <div class="kpi-value" id="kpiCpu">—</div>
+      <div class="kpi-subtitle" id="kpiCpuSub">across filtered data</div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">📊</div>
+    <div class="kpi-info">
+      <div class="kpi-label">Peak MSU</div>
+      <div class="kpi-value color-green" id="kpiMsu">—</div>
+      <div class="kpi-subtitle">highest single reading</div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">💾</div>
+    <div class="kpi-info">
+      <div class="kpi-label">Avg Memory %</div>
+      <div class="kpi-value" id="kpiMem">—</div>
+      <div class="kpi-subtitle" id="kpiMemSub">across filtered data</div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">📋</div>
+    <div class="kpi-info">
+      <div class="kpi-label">Total Records</div>
+      <div class="kpi-value color-green" id="kpiRecords">—</div>
+      <div class="kpi-subtitle">filtered data points</div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">🚨</div>
+    <div class="kpi-info">
+      <div class="kpi-label">Critical Alerts</div>
+      <div class="kpi-value" id="kpiCritical">—</div>
+      <div class="kpi-subtitle" id="kpiCriticalSub">in filtered data</div>
+    </div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-icon">🎯</div>
+    <div class="kpi-info">
+      <div class="kpi-label">Avg WLM Goal %</div>
+      <div class="kpi-value" id="kpiWlm">—</div>
+      <div class="kpi-subtitle" id="kpiWlmSub">service level attainment</div>
+    </div>
+  </div>
+</div>
+
+<div id="charts-grid">
+  <div class="chart-card" style="grid-column: span 2;">
+    <div class="chart-title">📈 CPU Usage Over Time by System</div>
+    <div class="chart-wrapper"><canvas id="cpuChart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">🔵 CPU vs Memory Scatter (Bubble by DASD I/O)</div>
+    <div class="chart-wrapper"><canvas id="scatterChart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">🍩 Records by Environment</div>
+    <div class="chart-wrapper"><canvas id="envChart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">🍩 Records by Alert Level</div>
+    <div class="chart-wrapper"><canvas id="alertChart"></canvas></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">📊 Avg CPU % by Application Type</div>
+    <div class="chart-wrapper"><canvas id="appTypeChart"></canvas></div>
+  </div>
+  <div class="chart-card" style="grid-column: span 2;">
+    <div class="chart-title">📊 Shift Resource Usage (Avg CPU, Memory, Channel Busy %)</div>
+    <div class="chart-wrapper"><canvas id="shiftChart"></canvas></div>
+  </div>
+  <div class="chart-card" style="grid-column: span 2;">
+    <div class="chart-title">🌡️ CPU Usage Heatmap (Day × Hour)</div>
+    <div class="chart-wrapper-heatmap">
+      <canvas id="heatmapCanvas"></canvas>
+    </div>
+  </div>
+  <div class="chart-card" style="grid-column: span 2;">
+    <div class="chart-title">📊 Total MSU by LPAR</div>
+    <div class="chart-wrapper"><canvas id="msuChart"></canvas></div>
+  </div>
+</div>
+
+<div id="table-section">
+  <div class="table-header">
+    <div class="table-title">📋 Performance Data Records</div>
+    <div class="table-controls">
+      <input type="text" id="tableSearch" placeholder="🔍 Search records..." oninput="onTableSearch()">
+      <span id="recordCount"></span>
+    </div>
+  </div>
+  <div class="table-container">
+    <table id="dataTable">
+      <thead>
+        <tr>
+          <th onclick="sortTable('Row')" data-col="Row">Row#</th>
+          <th onclick="sortTable('Date')" data-col="Date">Date</th>
+          <th onclick="sortTable('Time')" data-col="Time">Time</th>
+          <th onclick="sortTable('System_Name')" data-col="System_Name">System</th>
+          <th onclick="sortTable('LPAR_Name')" data-col="LPAR_Name">LPAR</th>
+          <th onclick="sortTable('Environment')" data-col="Environment">Environment</th>
+          <th onclick="sortTable('Application_Name')" data-col="Application_Name">Application</th>
+          <th onclick="sortTable('Application_Type')" data-col="Application_Type">App Type</th>
+          <th onclick="sortTable('CPU_Usage_Pct')" data-col="CPU_Usage_Pct">CPU %</th>
+          <th onclick="sortTable('CPU_MSU')" data-col="CPU_MSU">MSU</th>
+          <th onclick="sortTable('Memory_Usage_Pct')" data-col="Memory_Usage_Pct">Memory %</th>
+          <th onclick="sortTable('DASD_IO_Rate')" data-col="DASD_IO_Rate">DASD I/O</th>
+          <th onclick="sortTable('Alert_Level')" data-col="Alert_Level">Alert</th>
+        </tr>
+      </thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<footer>z/OS Performance Dashboard v1.0 | Data Period: March 1–6, 2026 | Powered by Chart.js</footer>
+
+<script>
+const rawData = [
+  {Row:1,Date:"2026-03-01",Day:"Sunday",Time:"00:15",Hour:0,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:32.5,CPU_MSU:185,Memory_Usage_Pct:61.2,DASD_IO_Rate:4500,Channel_Busy_Pct:22.1,Batch_Jobs_Running:12,Online_Transactions_Per_Sec:320,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:98.5,Alert_Level:"Normal"},
+  {Row:2,Date:"2026-03-01",Day:"Sunday",Time:"01:30",Hour:1,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:28.4,CPU_MSU:162,Memory_Usage_Pct:58.7,DASD_IO_Rate:3800,Channel_Busy_Pct:18.5,Batch_Jobs_Running:8,Online_Transactions_Per_Sec:180,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:99.1,Alert_Level:"Normal"},
+  {Row:3,Date:"2026-03-01",Day:"Sunday",Time:"02:45",Hour:2,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:18.7,CPU_MSU:105,Memory_Usage_Pct:45.3,DASD_IO_Rate:2900,Channel_Busy_Pct:14.2,Batch_Jobs_Running:15,Online_Transactions_Per_Sec:95,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:97.8,Alert_Level:"Normal"},
+  {Row:4,Date:"2026-03-01",Day:"Sunday",Time:"04:00",Hour:4,Shift:"Night",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"CICS_TestBank",Application_Type:"CICS",CPU_Usage_Pct:8.2,CPU_MSU:42,Memory_Usage_Pct:22.5,DASD_IO_Rate:800,Channel_Busy_Pct:5.1,Batch_Jobs_Running:3,Online_Transactions_Per_Sec:40,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:95.2,Alert_Level:"Normal"},
+  {Row:5,Date:"2026-03-01",Day:"Sunday",Time:"06:15",Hour:6,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:45.3,CPU_MSU:258,Memory_Usage_Pct:72.4,DASD_IO_Rate:6200,Channel_Busy_Pct:35.8,Batch_Jobs_Running:22,Online_Transactions_Per_Sec:580,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:96.3,Alert_Level:"Warning"},
+  {Row:6,Date:"2026-03-01",Day:"Sunday",Time:"08:00",Hour:8,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:52.1,CPU_MSU:298,Memory_Usage_Pct:68.9,DASD_IO_Rate:7100,Channel_Busy_Pct:38.4,Batch_Jobs_Running:18,Online_Transactions_Per_Sec:720,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:94.7,Alert_Level:"Warning"},
+  {Row:7,Date:"2026-03-01",Day:"Sunday",Time:"09:30",Hour:9,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:61.8,CPU_MSU:352,Memory_Usage_Pct:75.6,DASD_IO_Rate:8500,Channel_Busy_Pct:42.7,Batch_Jobs_Running:25,Online_Transactions_Per_Sec:890,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:93.1,Alert_Level:"Warning"},
+  {Row:8,Date:"2026-03-01",Day:"Sunday",Time:"10:00",Hour:10,Shift:"Morning",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"CICS_UAT_Bank",Application_Type:"CICS",CPU_Usage_Pct:22.3,CPU_MSU:115,Memory_Usage_Pct:38.4,DASD_IO_Rate:1500,Channel_Busy_Pct:12.3,Batch_Jobs_Running:6,Online_Transactions_Per_Sec:150,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:97.5,Alert_Level:"Normal"},
+  {Row:9,Date:"2026-03-01",Day:"Sunday",Time:"11:15",Hour:11,Shift:"Morning",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"DB2_TestLoan",Application_Type:"DB2",CPU_Usage_Pct:15.6,CPU_MSU:78,Memory_Usage_Pct:28.9,DASD_IO_Rate:1100,Channel_Busy_Pct:8.7,Batch_Jobs_Running:4,Online_Transactions_Per_Sec:85,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:98.9,Alert_Level:"Normal"},
+  {Row:10,Date:"2026-03-01",Day:"Sunday",Time:"12:00",Hour:12,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:78.4,CPU_MSU:448,Memory_Usage_Pct:82.3,DASD_IO_Rate:11200,Channel_Busy_Pct:55.6,Batch_Jobs_Running:30,Online_Transactions_Per_Sec:1250,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:89.2,Alert_Level:"Critical"},
+  {Row:11,Date:"2026-03-02",Day:"Monday",Time:"00:30",Hour:0,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:85.2,CPU_MSU:486,Memory_Usage_Pct:88.1,DASD_IO_Rate:14500,Channel_Busy_Pct:62.3,Batch_Jobs_Running:45,Online_Transactions_Per_Sec:50,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:91.5,Alert_Level:"Critical"},
+  {Row:12,Date:"2026-03-02",Day:"Monday",Time:"01:45",Hour:1,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_Recon",Application_Type:"Batch",CPU_Usage_Pct:72.6,CPU_MSU:414,Memory_Usage_Pct:79.5,DASD_IO_Rate:12800,Channel_Busy_Pct:58.1,Batch_Jobs_Running:38,Online_Transactions_Per_Sec:30,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:92.8,Alert_Level:"Warning"},
+  {Row:13,Date:"2026-03-02",Day:"Monday",Time:"03:00",Hour:3,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:25.3,CPU_MSU:144,Memory_Usage_Pct:48.6,DASD_IO_Rate:3200,Channel_Busy_Pct:16.8,Batch_Jobs_Running:20,Online_Transactions_Per_Sec:120,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:98.2,Alert_Level:"Normal"},
+  {Row:14,Date:"2026-03-02",Day:"Monday",Time:"05:00",Hour:5,Shift:"Night",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"Batch_TestRun",Application_Type:"Batch",CPU_Usage_Pct:12.4,CPU_MSU:63,Memory_Usage_Pct:25.1,DASD_IO_Rate:950,Channel_Busy_Pct:6.8,Batch_Jobs_Running:5,Online_Transactions_Per_Sec:0,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.1,Alert_Level:"Normal"},
+  {Row:15,Date:"2026-03-02",Day:"Monday",Time:"07:00",Hour:7,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:55.8,CPU_MSU:318,Memory_Usage_Pct:70.2,DASD_IO_Rate:7800,Channel_Busy_Pct:40.5,Batch_Jobs_Running:20,Online_Transactions_Per_Sec:650,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:95.1,Alert_Level:"Warning"},
+  {Row:16,Date:"2026-03-02",Day:"Monday",Time:"08:30",Hour:8,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:68.9,CPU_MSU:393,Memory_Usage_Pct:78.4,DASD_IO_Rate:9800,Channel_Busy_Pct:48.2,Batch_Jobs_Running:28,Online_Transactions_Per_Sec:950,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:91.8,Alert_Level:"Warning"},
+  {Row:17,Date:"2026-03-02",Day:"Monday",Time:"09:00",Hour:9,Shift:"Morning",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"IMS_UAT_Pay",Application_Type:"IMS",CPU_Usage_Pct:28.7,CPU_MSU:148,Memory_Usage_Pct:42.1,DASD_IO_Rate:1800,Channel_Busy_Pct:15.6,Batch_Jobs_Running:8,Online_Transactions_Per_Sec:200,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:96.8,Alert_Level:"Normal"},
+  {Row:18,Date:"2026-03-02",Day:"Monday",Time:"10:15",Hour:10,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:82.3,CPU_MSU:470,Memory_Usage_Pct:85.7,DASD_IO_Rate:13200,Channel_Busy_Pct:60.1,Batch_Jobs_Running:32,Online_Transactions_Per_Sec:1100,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:88.5,Alert_Level:"Critical"},
+  {Row:19,Date:"2026-03-02",Day:"Monday",Time:"11:00",Hour:11,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:75.1,CPU_MSU:428,Memory_Usage_Pct:80.9,DASD_IO_Rate:10500,Channel_Busy_Pct:52.8,Batch_Jobs_Running:26,Online_Transactions_Per_Sec:1050,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:90.3,Alert_Level:"Critical"},
+  {Row:20,Date:"2026-03-02",Day:"Monday",Time:"12:30",Hour:12,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:88.6,CPU_MSU:505,Memory_Usage_Pct:91.2,DASD_IO_Rate:15800,Channel_Busy_Pct:68.4,Batch_Jobs_Running:35,Online_Transactions_Per_Sec:1480,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:85.6,Alert_Level:"Critical"},
+  {Row:21,Date:"2026-03-02",Day:"Monday",Time:"13:00",Hour:13,Shift:"Afternoon",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"CICS_TestBank",Application_Type:"CICS",CPU_Usage_Pct:18.9,CPU_MSU:95,Memory_Usage_Pct:30.5,DASD_IO_Rate:1200,Channel_Busy_Pct:9.4,Batch_Jobs_Running:5,Online_Transactions_Per_Sec:110,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:98.4,Alert_Level:"Normal"},
+  {Row:22,Date:"2026-03-02",Day:"Monday",Time:"14:15",Hour:14,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:71.4,CPU_MSU:407,Memory_Usage_Pct:77.8,DASD_IO_Rate:9200,Channel_Busy_Pct:49.5,Batch_Jobs_Running:24,Online_Transactions_Per_Sec:880,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:92.1,Alert_Level:"Warning"},
+  {Row:23,Date:"2026-03-02",Day:"Monday",Time:"15:00",Hour:15,Shift:"Afternoon",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"DB2_UAT_Core",Application_Type:"DB2",CPU_Usage_Pct:35.2,CPU_MSU:182,Memory_Usage_Pct:48.9,DASD_IO_Rate:2400,Channel_Busy_Pct:20.1,Batch_Jobs_Running:10,Online_Transactions_Per_Sec:280,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:95.6,Alert_Level:"Normal"},
+  {Row:24,Date:"2026-03-02",Day:"Monday",Time:"16:30",Hour:16,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:62.5,CPU_MSU:356,Memory_Usage_Pct:73.1,DASD_IO_Rate:8800,Channel_Busy_Pct:44.2,Batch_Jobs_Running:22,Online_Transactions_Per_Sec:760,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:93.5,Alert_Level:"Warning"},
+  {Row:25,Date:"2026-03-02",Day:"Monday",Time:"17:00",Hour:17,Shift:"Evening",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:48.3,CPU_MSU:275,Memory_Usage_Pct:65.4,DASD_IO_Rate:6500,Channel_Busy_Pct:33.7,Batch_Jobs_Running:16,Online_Transactions_Per_Sec:520,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:96.2,Alert_Level:"Normal"},
+  {Row:26,Date:"2026-03-02",Day:"Monday",Time:"18:30",Hour:18,Shift:"Evening",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:38.7,CPU_MSU:220,Memory_Usage_Pct:58.2,DASD_IO_Rate:4800,Channel_Busy_Pct:28.9,Batch_Jobs_Running:14,Online_Transactions_Per_Sec:380,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:97.4,Alert_Level:"Normal"},
+  {Row:27,Date:"2026-03-02",Day:"Monday",Time:"20:00",Hour:20,Shift:"Evening",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"MQ_TestMW",Application_Type:"MQ Series",CPU_Usage_Pct:10.5,CPU_MSU:52,Memory_Usage_Pct:20.3,DASD_IO_Rate:650,Channel_Busy_Pct:4.8,Batch_Jobs_Running:2,Online_Transactions_Per_Sec:25,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.5,Alert_Level:"Normal"},
+  {Row:28,Date:"2026-03-02",Day:"Monday",Time:"22:00",Hour:22,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:92.1,CPU_MSU:525,Memory_Usage_Pct:93.8,DASD_IO_Rate:16200,Channel_Busy_Pct:72.5,Batch_Jobs_Running:48,Online_Transactions_Per_Sec:20,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:87.2,Alert_Level:"Critical"},
+  {Row:29,Date:"2026-03-02",Day:"Monday",Time:"23:30",Hour:23,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_Recon",Application_Type:"Batch",CPU_Usage_Pct:78.9,CPU_MSU:450,Memory_Usage_Pct:84.6,DASD_IO_Rate:13800,Channel_Busy_Pct:61.8,Batch_Jobs_Running:42,Online_Transactions_Per_Sec:15,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:90.1,Alert_Level:"Critical"},
+  {Row:30,Date:"2026-03-03",Day:"Tuesday",Time:"00:15",Hour:0,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:88.4,CPU_MSU:504,Memory_Usage_Pct:90.5,DASD_IO_Rate:15200,Channel_Busy_Pct:66.3,Batch_Jobs_Running:46,Online_Transactions_Per_Sec:10,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:86.8,Alert_Level:"Critical"},
+  {Row:31,Date:"2026-03-03",Day:"Tuesday",Time:"02:00",Hour:2,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:22.8,CPU_MSU:130,Memory_Usage_Pct:42.1,DASD_IO_Rate:2600,Channel_Busy_Pct:12.5,Batch_Jobs_Running:10,Online_Transactions_Per_Sec:140,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:98.8,Alert_Level:"Normal"},
+  {Row:32,Date:"2026-03-03",Day:"Tuesday",Time:"04:30",Hour:4,Shift:"Night",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"Batch_UAT_Run",Application_Type:"Batch",CPU_Usage_Pct:18.1,CPU_MSU:92,Memory_Usage_Pct:32.4,DASD_IO_Rate:1350,Channel_Busy_Pct:10.2,Batch_Jobs_Running:7,Online_Transactions_Per_Sec:0,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:97.2,Alert_Level:"Normal"},
+  {Row:33,Date:"2026-03-03",Day:"Tuesday",Time:"06:00",Hour:6,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:42.6,CPU_MSU:243,Memory_Usage_Pct:62.8,DASD_IO_Rate:5500,Channel_Busy_Pct:30.4,Batch_Jobs_Running:16,Online_Transactions_Per_Sec:420,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:96.8,Alert_Level:"Normal"},
+  {Row:34,Date:"2026-03-03",Day:"Tuesday",Time:"07:30",Hour:7,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:58.4,CPU_MSU:333,Memory_Usage_Pct:71.5,DASD_IO_Rate:8200,Channel_Busy_Pct:43.6,Batch_Jobs_Running:21,Online_Transactions_Per_Sec:710,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:94.2,Alert_Level:"Warning"},
+  {Row:35,Date:"2026-03-03",Day:"Tuesday",Time:"08:00",Hour:8,Shift:"Morning",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"IMS_TestPay",Application_Type:"IMS",CPU_Usage_Pct:14.2,CPU_MSU:71,Memory_Usage_Pct:26.8,DASD_IO_Rate:980,Channel_Busy_Pct:7.5,Batch_Jobs_Running:4,Online_Transactions_Per_Sec:65,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.0,Alert_Level:"Normal"},
+  {Row:36,Date:"2026-03-03",Day:"Tuesday",Time:"09:15",Hour:9,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:72.8,CPU_MSU:415,Memory_Usage_Pct:80.1,DASD_IO_Rate:10800,Channel_Busy_Pct:51.4,Batch_Jobs_Running:27,Online_Transactions_Per_Sec:920,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:91.5,Alert_Level:"Warning"},
+  {Row:37,Date:"2026-03-03",Day:"Tuesday",Time:"10:00",Hour:10,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:65.3,CPU_MSU:372,Memory_Usage_Pct:74.8,DASD_IO_Rate:9100,Channel_Busy_Pct:46.8,Batch_Jobs_Running:24,Online_Transactions_Per_Sec:830,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:92.9,Alert_Level:"Warning"},
+  {Row:38,Date:"2026-03-03",Day:"Tuesday",Time:"11:30",Hour:11,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:84.7,CPU_MSU:483,Memory_Usage_Pct:87.5,DASD_IO_Rate:14200,Channel_Busy_Pct:62.8,Batch_Jobs_Running:33,Online_Transactions_Per_Sec:1320,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:87.8,Alert_Level:"Critical"},
+  {Row:39,Date:"2026-03-03",Day:"Tuesday",Time:"12:00",Hour:12,Shift:"Afternoon",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"CICS_UAT_Bank",Application_Type:"CICS",CPU_Usage_Pct:30.5,CPU_MSU:158,Memory_Usage_Pct:44.2,DASD_IO_Rate:2100,Channel_Busy_Pct:17.3,Batch_Jobs_Running:9,Online_Transactions_Per_Sec:220,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:96.1,Alert_Level:"Normal"},
+  {Row:40,Date:"2026-03-03",Day:"Tuesday",Time:"13:15",Hour:13,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:58.9,CPU_MSU:336,Memory_Usage_Pct:69.7,DASD_IO_Rate:7600,Channel_Busy_Pct:41.2,Batch_Jobs_Running:20,Online_Transactions_Per_Sec:680,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:94.5,Alert_Level:"Warning"},
+  {Row:41,Date:"2026-03-03",Day:"Tuesday",Time:"14:00",Hour:14,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:80.2,CPU_MSU:457,Memory_Usage_Pct:84.3,DASD_IO_Rate:12600,Channel_Busy_Pct:58.5,Batch_Jobs_Running:31,Online_Transactions_Per_Sec:1180,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:89.1,Alert_Level:"Critical"},
+  {Row:42,Date:"2026-03-03",Day:"Tuesday",Time:"15:30",Hour:15,Shift:"Afternoon",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"DB2_TestLoan",Application_Type:"DB2",CPU_Usage_Pct:16.8,CPU_MSU:84,Memory_Usage_Pct:29.4,DASD_IO_Rate:1050,Channel_Busy_Pct:8.1,Batch_Jobs_Running:4,Online_Transactions_Per_Sec:75,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:98.6,Alert_Level:"Normal"},
+  {Row:43,Date:"2026-03-03",Day:"Tuesday",Time:"16:00",Hour:16,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:68.1,CPU_MSU:388,Memory_Usage_Pct:76.2,DASD_IO_Rate:9500,Channel_Busy_Pct:47.1,Batch_Jobs_Running:25,Online_Transactions_Per_Sec:860,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:92.4,Alert_Level:"Warning"},
+  {Row:44,Date:"2026-03-03",Day:"Tuesday",Time:"17:30",Hour:17,Shift:"Evening",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:52.4,CPU_MSU:299,Memory_Usage_Pct:67.8,DASD_IO_Rate:7200,Channel_Busy_Pct:36.9,Batch_Jobs_Running:19,Online_Transactions_Per_Sec:580,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:95.3,Alert_Level:"Warning"},
+  {Row:45,Date:"2026-03-03",Day:"Tuesday",Time:"19:00",Hour:19,Shift:"Evening",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:35.6,CPU_MSU:203,Memory_Usage_Pct:55.1,DASD_IO_Rate:4200,Channel_Busy_Pct:24.8,Batch_Jobs_Running:12,Online_Transactions_Per_Sec:340,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:97.6,Alert_Level:"Normal"},
+  {Row:46,Date:"2026-03-03",Day:"Tuesday",Time:"21:00",Hour:21,Shift:"Evening",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"MQ_UAT_MW",Application_Type:"MQ Series",CPU_Usage_Pct:12.8,CPU_MSU:65,Memory_Usage_Pct:24.6,DASD_IO_Rate:780,Channel_Busy_Pct:6.2,Batch_Jobs_Running:3,Online_Transactions_Per_Sec:45,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:99.2,Alert_Level:"Normal"},
+  {Row:47,Date:"2026-03-03",Day:"Tuesday",Time:"23:00",Hour:23,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:90.5,CPU_MSU:516,Memory_Usage_Pct:92.4,DASD_IO_Rate:15600,Channel_Busy_Pct:70.1,Batch_Jobs_Running:47,Online_Transactions_Per_Sec:18,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:86.5,Alert_Level:"Critical"},
+  {Row:48,Date:"2026-03-04",Day:"Wednesday",Time:"00:30",Hour:0,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_Recon",Application_Type:"Batch",CPU_Usage_Pct:76.3,CPU_MSU:435,Memory_Usage_Pct:82.8,DASD_IO_Rate:13100,Channel_Busy_Pct:59.4,Batch_Jobs_Running:40,Online_Transactions_Per_Sec:12,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:91.2,Alert_Level:"Critical"},
+  {Row:49,Date:"2026-03-04",Day:"Wednesday",Time:"02:15",Hour:2,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:20.5,CPU_MSU:117,Memory_Usage_Pct:40.2,DASD_IO_Rate:2400,Channel_Busy_Pct:11.8,Batch_Jobs_Running:8,Online_Transactions_Per_Sec:100,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:99.0,Alert_Level:"Normal"},
+  {Row:50,Date:"2026-03-04",Day:"Wednesday",Time:"04:00",Hour:4,Shift:"Night",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"Batch_TestRun",Application_Type:"Batch",CPU_Usage_Pct:11.2,CPU_MSU:56,Memory_Usage_Pct:22.8,DASD_IO_Rate:720,Channel_Busy_Pct:5.4,Batch_Jobs_Running:4,Online_Transactions_Per_Sec:0,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.4,Alert_Level:"Normal"},
+  {Row:51,Date:"2026-03-04",Day:"Wednesday",Time:"06:30",Hour:6,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:48.9,CPU_MSU:279,Memory_Usage_Pct:66.5,DASD_IO_Rate:6800,Channel_Busy_Pct:34.2,Batch_Jobs_Running:18,Online_Transactions_Per_Sec:490,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:95.8,Alert_Level:"Normal"},
+  {Row:52,Date:"2026-03-04",Day:"Wednesday",Time:"07:00",Hour:7,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:42.1,CPU_MSU:240,Memory_Usage_Pct:60.4,DASD_IO_Rate:5200,Channel_Busy_Pct:29.8,Batch_Jobs_Running:15,Online_Transactions_Per_Sec:410,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:96.5,Alert_Level:"Normal"},
+  {Row:53,Date:"2026-03-04",Day:"Wednesday",Time:"08:45",Hour:8,Shift:"Morning",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"DB2_UAT_Core",Application_Type:"DB2",CPU_Usage_Pct:25.4,CPU_MSU:131,Memory_Usage_Pct:36.8,DASD_IO_Rate:1650,Channel_Busy_Pct:13.5,Batch_Jobs_Running:7,Online_Transactions_Per_Sec:170,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:97.8,Alert_Level:"Normal"},
+  {Row:54,Date:"2026-03-04",Day:"Wednesday",Time:"09:30",Hour:9,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:74.6,CPU_MSU:425,Memory_Usage_Pct:81.2,DASD_IO_Rate:11500,Channel_Busy_Pct:54.3,Batch_Jobs_Running:28,Online_Transactions_Per_Sec:980,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:90.8,Alert_Level:"Critical"},
+  {Row:55,Date:"2026-03-04",Day:"Wednesday",Time:"10:15",Hour:10,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:69.8,CPU_MSU:398,Memory_Usage_Pct:77.1,DASD_IO_Rate:9800,Channel_Busy_Pct:48.9,Batch_Jobs_Running:25,Online_Transactions_Per_Sec:900,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:92.0,Alert_Level:"Warning"},
+  {Row:56,Date:"2026-03-04",Day:"Wednesday",Time:"11:00",Hour:11,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:81.5,CPU_MSU:465,Memory_Usage_Pct:86.2,DASD_IO_Rate:13500,Channel_Busy_Pct:60.5,Batch_Jobs_Running:32,Online_Transactions_Per_Sec:1150,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:88.4,Alert_Level:"Critical"},
+  {Row:57,Date:"2026-03-04",Day:"Wednesday",Time:"12:30",Hour:12,Shift:"Afternoon",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"CICS_TestBank",Application_Type:"CICS",CPU_Usage_Pct:19.5,CPU_MSU:98,Memory_Usage_Pct:31.2,DASD_IO_Rate:1280,Channel_Busy_Pct:9.8,Batch_Jobs_Running:5,Online_Transactions_Per_Sec:120,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:98.2,Alert_Level:"Normal"},
+  {Row:58,Date:"2026-03-04",Day:"Wednesday",Time:"13:00",Hour:13,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:73.2,CPU_MSU:418,Memory_Usage_Pct:79.5,DASD_IO_Rate:10200,Channel_Busy_Pct:50.8,Batch_Jobs_Running:26,Online_Transactions_Per_Sec:870,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:91.6,Alert_Level:"Warning"},
+  {Row:59,Date:"2026-03-04",Day:"Wednesday",Time:"14:30",Hour:14,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:86.3,CPU_MSU:492,Memory_Usage_Pct:89.1,DASD_IO_Rate:14800,Channel_Busy_Pct:64.2,Batch_Jobs_Running:34,Online_Transactions_Per_Sec:1380,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:86.9,Alert_Level:"Critical"},
+  {Row:60,Date:"2026-03-04",Day:"Wednesday",Time:"15:00",Hour:15,Shift:"Afternoon",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"IMS_UAT_Pay",Application_Type:"IMS",CPU_Usage_Pct:32.8,CPU_MSU:169,Memory_Usage_Pct:46.5,DASD_IO_Rate:2300,Channel_Busy_Pct:18.7,Batch_Jobs_Running:9,Online_Transactions_Per_Sec:240,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:95.9,Alert_Level:"Normal"},
+  {Row:61,Date:"2026-03-04",Day:"Wednesday",Time:"16:15",Hour:16,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:62.4,CPU_MSU:356,Memory_Usage_Pct:72.8,DASD_IO_Rate:8600,Channel_Busy_Pct:44.8,Batch_Jobs_Running:22,Online_Transactions_Per_Sec:780,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:93.7,Alert_Level:"Warning"},
+  {Row:62,Date:"2026-03-04",Day:"Wednesday",Time:"17:30",Hour:17,Shift:"Evening",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:50.8,CPU_MSU:290,Memory_Usage_Pct:66.1,DASD_IO_Rate:6900,Channel_Busy_Pct:35.4,Batch_Jobs_Running:18,Online_Transactions_Per_Sec:560,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:95.5,Alert_Level:"Warning"},
+  {Row:63,Date:"2026-03-04",Day:"Wednesday",Time:"19:00",Hour:19,Shift:"Evening",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:36.2,CPU_MSU:206,Memory_Usage_Pct:54.8,DASD_IO_Rate:4100,Channel_Busy_Pct:23.5,Batch_Jobs_Running:11,Online_Transactions_Per_Sec:320,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:97.8,Alert_Level:"Normal"},
+  {Row:64,Date:"2026-03-04",Day:"Wednesday",Time:"21:30",Hour:21,Shift:"Evening",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"IMS_TestPay",Application_Type:"IMS",CPU_Usage_Pct:9.8,CPU_MSU:49,Memory_Usage_Pct:19.5,DASD_IO_Rate:580,Channel_Busy_Pct:4.2,Batch_Jobs_Running:2,Online_Transactions_Per_Sec:30,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.6,Alert_Level:"Normal"},
+  {Row:65,Date:"2026-03-04",Day:"Wednesday",Time:"23:15",Hour:23,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:91.8,CPU_MSU:524,Memory_Usage_Pct:93.2,DASD_IO_Rate:16000,Channel_Busy_Pct:71.8,Batch_Jobs_Running:48,Online_Transactions_Per_Sec:15,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:86.2,Alert_Level:"Critical"},
+  {Row:66,Date:"2026-03-05",Day:"Thursday",Time:"00:45",Hour:0,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_Recon",Application_Type:"Batch",CPU_Usage_Pct:80.4,CPU_MSU:459,Memory_Usage_Pct:85.8,DASD_IO_Rate:14000,Channel_Busy_Pct:63.5,Batch_Jobs_Running:43,Online_Transactions_Per_Sec:10,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:89.8,Alert_Level:"Critical"},
+  {Row:67,Date:"2026-03-05",Day:"Thursday",Time:"02:30",Hour:2,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:65.2,CPU_MSU:372,Memory_Usage_Pct:74.1,DASD_IO_Rate:10100,Channel_Busy_Pct:48.6,Batch_Jobs_Running:35,Online_Transactions_Per_Sec:8,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:92.5,Alert_Level:"Warning"},
+  {Row:68,Date:"2026-03-05",Day:"Thursday",Time:"04:15",Hour:4,Shift:"Night",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"Batch_UAT_Run",Application_Type:"Batch",CPU_Usage_Pct:15.6,CPU_MSU:80,Memory_Usage_Pct:28.1,DASD_IO_Rate:1100,Channel_Busy_Pct:8.5,Batch_Jobs_Running:5,Online_Transactions_Per_Sec:0,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:98.5,Alert_Level:"Normal"},
+  {Row:69,Date:"2026-03-05",Day:"Thursday",Time:"06:00",Hour:6,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:44.8,CPU_MSU:255,Memory_Usage_Pct:63.5,DASD_IO_Rate:5800,Channel_Busy_Pct:31.2,Batch_Jobs_Running:16,Online_Transactions_Per_Sec:450,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:96.4,Alert_Level:"Normal"},
+  {Row:70,Date:"2026-03-05",Day:"Thursday",Time:"07:30",Hour:7,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:58.2,CPU_MSU:332,Memory_Usage_Pct:71.8,DASD_IO_Rate:8400,Channel_Busy_Pct:42.1,Batch_Jobs_Running:21,Online_Transactions_Per_Sec:690,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:94.1,Alert_Level:"Warning"},
+  {Row:71,Date:"2026-03-05",Day:"Thursday",Time:"08:00",Hour:8,Shift:"Morning",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"DB2_TestLoan",Application_Type:"DB2",CPU_Usage_Pct:13.5,CPU_MSU:68,Memory_Usage_Pct:25.4,DASD_IO_Rate:890,Channel_Busy_Pct:7.1,Batch_Jobs_Running:3,Online_Transactions_Per_Sec:55,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.1,Alert_Level:"Normal"},
+  {Row:72,Date:"2026-03-05",Day:"Thursday",Time:"09:45",Hour:9,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:70.5,CPU_MSU:402,Memory_Usage_Pct:78.9,DASD_IO_Rate:10400,Channel_Busy_Pct:50.2,Batch_Jobs_Running:26,Online_Transactions_Per_Sec:910,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:91.9,Alert_Level:"Warning"},
+  {Row:73,Date:"2026-03-05",Day:"Thursday",Time:"10:30",Hour:10,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:78.1,CPU_MSU:445,Memory_Usage_Pct:83.6,DASD_IO_Rate:12200,Channel_Busy_Pct:57.4,Batch_Jobs_Running:30,Online_Transactions_Per_Sec:1080,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:89.5,Alert_Level:"Critical"},
+  {Row:74,Date:"2026-03-05",Day:"Thursday",Time:"11:00",Hour:11,Shift:"Morning",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"CICS_UAT_Bank",Application_Type:"CICS",CPU_Usage_Pct:27.9,CPU_MSU:144,Memory_Usage_Pct:40.8,DASD_IO_Rate:1900,Channel_Busy_Pct:14.8,Batch_Jobs_Running:8,Online_Transactions_Per_Sec:190,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:97.1,Alert_Level:"Normal"},
+  {Row:75,Date:"2026-03-05",Day:"Thursday",Time:"12:15",Hour:12,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:76.8,CPU_MSU:438,Memory_Usage_Pct:82.1,DASD_IO_Rate:11800,Channel_Busy_Pct:55.2,Batch_Jobs_Running:28,Online_Transactions_Per_Sec:1020,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:90.2,Alert_Level:"Critical"},
+  {Row:76,Date:"2026-03-05",Day:"Thursday",Time:"13:30",Hour:13,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:85.9,CPU_MSU:490,Memory_Usage_Pct:88.8,DASD_IO_Rate:14500,Channel_Busy_Pct:63.8,Batch_Jobs_Running:33,Online_Transactions_Per_Sec:1350,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:87.1,Alert_Level:"Critical"},
+  {Row:77,Date:"2026-03-05",Day:"Thursday",Time:"14:00",Hour:14,Shift:"Afternoon",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"MQ_TestMW",Application_Type:"MQ Series",CPU_Usage_Pct:11.8,CPU_MSU:59,Memory_Usage_Pct:23.1,DASD_IO_Rate:750,Channel_Busy_Pct:5.8,Batch_Jobs_Running:3,Online_Transactions_Per_Sec:35,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.3,Alert_Level:"Normal"},
+  {Row:78,Date:"2026-03-05",Day:"Thursday",Time:"15:15",Hour:15,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:60.1,CPU_MSU:343,Memory_Usage_Pct:70.5,DASD_IO_Rate:8100,Channel_Busy_Pct:42.5,Batch_Jobs_Running:21,Online_Transactions_Per_Sec:720,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:93.9,Alert_Level:"Warning"},
+  {Row:79,Date:"2026-03-05",Day:"Thursday",Time:"16:45",Hour:16,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:67.4,CPU_MSU:384,Memory_Usage_Pct:75.9,DASD_IO_Rate:9400,Channel_Busy_Pct:46.3,Batch_Jobs_Running:24,Online_Transactions_Per_Sec:840,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:92.6,Alert_Level:"Warning"},
+  {Row:80,Date:"2026-03-05",Day:"Thursday",Time:"18:00",Hour:18,Shift:"Evening",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:40.5,CPU_MSU:231,Memory_Usage_Pct:59.2,DASD_IO_Rate:5000,Channel_Busy_Pct:27.4,Batch_Jobs_Running:13,Online_Transactions_Per_Sec:360,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:97.1,Alert_Level:"Normal"},
+  {Row:81,Date:"2026-03-05",Day:"Thursday",Time:"20:00",Hour:20,Shift:"Evening",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"DB2_UAT_Core",Application_Type:"DB2",CPU_Usage_Pct:20.3,CPU_MSU:105,Memory_Usage_Pct:34.5,DASD_IO_Rate:1400,Channel_Busy_Pct:11.2,Batch_Jobs_Running:6,Online_Transactions_Per_Sec:130,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:98.0,Alert_Level:"Normal"},
+  {Row:82,Date:"2026-03-05",Day:"Thursday",Time:"22:30",Hour:22,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:93.4,CPU_MSU:533,Memory_Usage_Pct:94.5,DASD_IO_Rate:16500,Channel_Busy_Pct:73.2,Batch_Jobs_Running:49,Online_Transactions_Per_Sec:12,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:85.8,Alert_Level:"Critical"},
+  {Row:83,Date:"2026-03-06",Day:"Friday",Time:"00:00",Hour:0,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_Recon",Application_Type:"Batch",CPU_Usage_Pct:82.1,CPU_MSU:468,Memory_Usage_Pct:87.2,DASD_IO_Rate:14600,Channel_Busy_Pct:65.1,Batch_Jobs_Running:44,Online_Transactions_Per_Sec:8,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:89.1,Alert_Level:"Critical"},
+  {Row:84,Date:"2026-03-06",Day:"Friday",Time:"02:00",Hour:2,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:24.6,CPU_MSU:140,Memory_Usage_Pct:44.8,DASD_IO_Rate:2800,Channel_Busy_Pct:13.2,Batch_Jobs_Running:9,Online_Transactions_Per_Sec:110,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:98.6,Alert_Level:"Normal"},
+  {Row:85,Date:"2026-03-06",Day:"Friday",Time:"03:30",Hour:3,Shift:"Night",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"CICS_TestBank",Application_Type:"CICS",CPU_Usage_Pct:7.5,CPU_MSU:38,Memory_Usage_Pct:18.2,DASD_IO_Rate:520,Channel_Busy_Pct:3.8,Batch_Jobs_Running:2,Online_Transactions_Per_Sec:20,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.7,Alert_Level:"Normal"},
+  {Row:86,Date:"2026-03-06",Day:"Friday",Time:"05:00",Hour:5,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:30.8,CPU_MSU:176,Memory_Usage_Pct:52.4,DASD_IO_Rate:3500,Channel_Busy_Pct:19.5,Batch_Jobs_Running:12,Online_Transactions_Per_Sec:250,WLM_Service_Class:"MEDPROD",WLM_Goal_Pct:98.0,Alert_Level:"Normal"},
+  {Row:87,Date:"2026-03-06",Day:"Friday",Time:"07:15",Hour:7,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:56.5,CPU_MSU:322,Memory_Usage_Pct:70.8,DASD_IO_Rate:8000,Channel_Busy_Pct:41.8,Batch_Jobs_Running:20,Online_Transactions_Per_Sec:670,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:94.5,Alert_Level:"Warning"},
+  {Row:88,Date:"2026-03-06",Day:"Friday",Time:"08:30",Hour:8,Shift:"Morning",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"MQ_UAT_MW",Application_Type:"MQ Series",CPU_Usage_Pct:18.4,CPU_MSU:95,Memory_Usage_Pct:30.8,DASD_IO_Rate:1200,Channel_Busy_Pct:9.5,Batch_Jobs_Running:5,Online_Transactions_Per_Sec:80,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:98.3,Alert_Level:"Normal"},
+  {Row:89,Date:"2026-03-06",Day:"Friday",Time:"09:00",Hour:9,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:72.4,CPU_MSU:413,Memory_Usage_Pct:79.8,DASD_IO_Rate:10600,Channel_Busy_Pct:52.1,Batch_Jobs_Running:27,Online_Transactions_Per_Sec:960,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:91.4,Alert_Level:"Warning"},
+  {Row:90,Date:"2026-03-06",Day:"Friday",Time:"10:45",Hour:10,Shift:"Morning",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:83.8,CPU_MSU:478,Memory_Usage_Pct:87.9,DASD_IO_Rate:13800,Channel_Busy_Pct:61.2,Batch_Jobs_Running:32,Online_Transactions_Per_Sec:1200,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:88.0,Alert_Level:"Critical"},
+  {Row:91,Date:"2026-03-06",Day:"Friday",Time:"11:30",Hour:11,Shift:"Morning",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"MQ_Middleware",Application_Type:"MQ Series",CPU_Usage_Pct:68.5,CPU_MSU:391,Memory_Usage_Pct:76.5,DASD_IO_Rate:9600,Channel_Busy_Pct:48.5,Batch_Jobs_Running:25,Online_Transactions_Per_Sec:880,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:92.2,Alert_Level:"Warning"},
+  {Row:92,Date:"2026-03-06",Day:"Friday",Time:"12:00",Hour:12,Shift:"Afternoon",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"IMS_TestPay",Application_Type:"IMS",CPU_Usage_Pct:16.2,CPU_MSU:82,Memory_Usage_Pct:28.5,DASD_IO_Rate:1020,Channel_Busy_Pct:7.8,Batch_Jobs_Running:4,Online_Transactions_Per_Sec:60,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:98.8,Alert_Level:"Normal"},
+  {Row:93,Date:"2026-03-06",Day:"Friday",Time:"13:45",Hour:13,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Banking",Application_Type:"CICS",CPU_Usage_Pct:87.2,CPU_MSU:497,Memory_Usage_Pct:90.2,DASD_IO_Rate:15200,Channel_Busy_Pct:66.8,Batch_Jobs_Running:35,Online_Transactions_Per_Sec:1420,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:86.4,Alert_Level:"Critical"},
+  {Row:94,Date:"2026-03-06",Day:"Friday",Time:"14:30",Hour:14,Shift:"Afternoon",System_Name:"ZOS4",LPAR_Name:"LUAT1",Sysplex_Name:"SYSPLEX2",Environment:"UAT",Application_Name:"CICS_UAT_Bank",Application_Type:"CICS",CPU_Usage_Pct:33.6,CPU_MSU:173,Memory_Usage_Pct:47.8,DASD_IO_Rate:2250,Channel_Busy_Pct:18.2,Batch_Jobs_Running:9,Online_Transactions_Per_Sec:260,WLM_Service_Class:"UATCLS",WLM_Goal_Pct:95.7,Alert_Level:"Normal"},
+  {Row:95,Date:"2026-03-06",Day:"Friday",Time:"15:00",Hour:15,Shift:"Afternoon",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"DB2_CoreBank",Application_Type:"DB2",CPU_Usage_Pct:74.8,CPU_MSU:427,Memory_Usage_Pct:80.5,DASD_IO_Rate:11100,Channel_Busy_Pct:53.6,Batch_Jobs_Running:27,Online_Transactions_Per_Sec:940,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:91.0,Alert_Level:"Warning"},
+  {Row:96,Date:"2026-03-06",Day:"Friday",Time:"16:30",Hour:16,Shift:"Afternoon",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"IMS_Payments",Application_Type:"IMS",CPU_Usage_Pct:55.2,CPU_MSU:315,Memory_Usage_Pct:68.4,DASD_IO_Rate:7500,Channel_Busy_Pct:38.1,Batch_Jobs_Running:19,Online_Transactions_Per_Sec:620,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:94.8,Alert_Level:"Warning"},
+  {Row:97,Date:"2026-03-06",Day:"Friday",Time:"18:00",Hour:18,Shift:"Evening",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"CICS_Insurance",Application_Type:"CICS",CPU_Usage_Pct:42.8,CPU_MSU:244,Memory_Usage_Pct:61.5,DASD_IO_Rate:5400,Channel_Busy_Pct:30.5,Batch_Jobs_Running:14,Online_Transactions_Per_Sec:430,WLM_Service_Class:"HIGHPROD",WLM_Goal_Pct:96.6,Alert_Level:"Normal"},
+  {Row:98,Date:"2026-03-06",Day:"Friday",Time:"20:30",Hour:20,Shift:"Evening",System_Name:"ZOS3",LPAR_Name:"LTEST1",Sysplex_Name:"SYSPLEX2",Environment:"Test",Application_Name:"Batch_TestRun",Application_Type:"Batch",CPU_Usage_Pct:10.1,CPU_MSU:51,Memory_Usage_Pct:21.4,DASD_IO_Rate:680,Channel_Busy_Pct:5.1,Batch_Jobs_Running:3,Online_Transactions_Per_Sec:0,WLM_Service_Class:"TESTCLS",WLM_Goal_Pct:99.5,Alert_Level:"Normal"},
+  {Row:99,Date:"2026-03-06",Day:"Friday",Time:"22:00",Hour:22,Shift:"Night",System_Name:"ZOS1",LPAR_Name:"LPROD1",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_EOD",Application_Type:"Batch",CPU_Usage_Pct:94.2,CPU_MSU:537,Memory_Usage_Pct:95.1,DASD_IO_Rate:16800,Channel_Busy_Pct:74.5,Batch_Jobs_Running:50,Online_Transactions_Per_Sec:10,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:85.2,Alert_Level:"Critical"},
+  {Row:100,Date:"2026-03-06",Day:"Friday",Time:"23:45",Hour:23,Shift:"Night",System_Name:"ZOS2",LPAR_Name:"LPROD2",Sysplex_Name:"SYSPLEX1",Environment:"Production",Application_Name:"Batch_Recon",Application_Type:"Batch",CPU_Usage_Pct:81.6,CPU_MSU:465,Memory_Usage_Pct:86.5,DASD_IO_Rate:14200,Channel_Busy_Pct:64.2,Batch_Jobs_Running:43,Online_Transactions_Per_Sec:8,WLM_Service_Class:"BATCHHI",WLM_Goal_Pct:89.5,Alert_Level:"Critical"}
+];
+
+// Filter state
+const filterState = {
+  systemName: '', environment: '', appType: '', shift: '',
+  alertLevel: '', dateFrom: '2026-03-01', dateTo: '2026-03-06', search: ''
+};
+
+// Sort state for table
+let sortCol = 'Row';
+let sortDir = 'asc';
+let tableSearchVal = '';
+
+// Chart instances
+let cpuChart, scatterChart, envChart, alertChart, appTypeChart, shiftChart, msuChart;
+
+function getFilteredData() {
+  return rawData.filter(d => {
+    if (filterState.systemName && d.System_Name !== filterState.systemName) return false;
+    if (filterState.environment && d.Environment !== filterState.environment) return false;
+    if (filterState.appType && d.Application_Type !== filterState.appType) return false;
+    if (filterState.shift && d.Shift !== filterState.shift) return false;
+    if (filterState.alertLevel && d.Alert_Level !== filterState.alertLevel) return false;
+    if (filterState.dateFrom && d.Date < filterState.dateFrom) return false;
+    if (filterState.dateTo && d.Date > filterState.dateTo) return false;
+    return true;
+  });
+}
+
+function avg(arr) {
+  if (!arr.length) return 0;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
+function updateFiltersFromDOM() {
+  filterState.systemName = document.getElementById('fSystem').value;
+  filterState.environment = document.getElementById('fEnv').value;
+  filterState.appType = document.getElementById('fAppType').value;
+  filterState.shift = document.getElementById('fShift').value;
+  filterState.alertLevel = document.getElementById('fAlert').value;
+  filterState.dateFrom = document.getElementById('fDateFrom').value;
+  filterState.dateTo = document.getElementById('fDateTo').value;
+}
+
+function resetFilters() {
+  document.getElementById('fSystem').value = '';
+  document.getElementById('fEnv').value = '';
+  document.getElementById('fAppType').value = '';
+  document.getElementById('fShift').value = '';
+  document.getElementById('fAlert').value = '';
+  document.getElementById('fDateFrom').value = '2026-03-01';
+  document.getElementById('fDateTo').value = '2026-03-06';
+  document.getElementById('tableSearch').value = '';
+  tableSearchVal = '';
+  updateDashboard();
+}
+
+function updateDashboard() {
+  updateFiltersFromDOM();
+  const data = getFilteredData();
+  updateKPIs(data);
+  updateCpuChart(data);
+  updateScatterChart(data);
+  updateEnvChart(data);
+  updateAlertChart(data);
+  updateAppTypeChart(data);
+  updateShiftChart(data);
+  drawHeatmap(data);
+  updateMsuChart(data);
+  updateTable(data);
+}
+
+function cpuColor(v) {
+  if (v < 50) return 'color-green';
+  if (v <= 75) return 'color-yellow';
+  return 'color-red';
+}
+
+function updateKPIs(data) {
+  if (!data.length) {
+    ['kpiCpu','kpiMsu','kpiMem','kpiRecords','kpiCritical','kpiWlm'].forEach(id => {
+      document.getElementById(id).textContent = '—';
+      document.getElementById(id).className = 'kpi-value';
+    });
+    return;
+  }
+  const avgCpu = avg(data.map(d => d.CPU_Usage_Pct));
+  const peakMsu = Math.max(...data.map(d => d.CPU_MSU));
+  const avgMem = avg(data.map(d => d.Memory_Usage_Pct));
+  const criticals = data.filter(d => d.Alert_Level === 'Critical').length;
+  const avgWlm = avg(data.map(d => d.WLM_Goal_Pct));
+
+  const cpuEl = document.getElementById('kpiCpu');
+  cpuEl.textContent = avgCpu.toFixed(1) + '%';
+  cpuEl.className = 'kpi-value ' + cpuColor(avgCpu);
+
+  document.getElementById('kpiMsu').textContent = peakMsu.toLocaleString();
+  document.getElementById('kpiMsu').className = 'kpi-value color-green';
+
+  const memEl = document.getElementById('kpiMem');
+  memEl.textContent = avgMem.toFixed(1) + '%';
+  memEl.className = 'kpi-value ' + cpuColor(avgMem);
+
+  document.getElementById('kpiRecords').textContent = data.length;
+  document.getElementById('kpiRecords').className = 'kpi-value color-green';
+
+  const critEl = document.getElementById('kpiCritical');
+  critEl.textContent = criticals;
+  critEl.className = 'kpi-value ' + (criticals > 0 ? 'color-red' : 'color-green');
+
+  const wlmEl = document.getElementById('kpiWlm');
+  wlmEl.textContent = avgWlm.toFixed(1) + '%';
+  wlmEl.className = 'kpi-value ' + (avgWlm >= 95 ? 'color-green' : avgWlm >= 90 ? 'color-yellow' : 'color-red');
+}
+
+// Chart default options helper
+function baseChartOpts(extra) {
+  return Object.assign({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { labels: { color: '#e0e0e0', font: { size: 11 } } }
+    },
+    scales: {}
+  }, extra || {});
+}
+
+const darkScales = {
+  x: { ticks: { color: '#a0a0b0', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' } },
+  y: { ticks: { color: '#a0a0b0', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.06)' } }
+};
+
+// Chart 1 - CPU Time Series
+function updateCpuChart(data) {
+  const systems = ['ZOS1','ZOS2','ZOS3','ZOS4'];
+  const sysColors = { ZOS1:'#4285f4', ZOS2:'#00d4aa', ZOS3:'#34a853', ZOS4:'#fb8c00' };
+
+  // Collect all unique datetime labels
+  const labelSet = new Set();
+  data.forEach(d => labelSet.add(d.Date + ' ' + d.Time));
+  const labels = Array.from(labelSet).sort().map(l => {
+    const parts = l.split(' ');
+    const dateParts = parts[0].split('-');
+    return (dateParts[1] + '/' + dateParts[2]) + ' ' + parts[1];
+  });
+  const labelKeys = Array.from(labelSet).sort();
+
+  const datasets = systems.map(sys => {
+    const sysData = data.filter(d => d.System_Name === sys);
+    const byKey = {};
+    sysData.forEach(d => { byKey[d.Date + ' ' + d.Time] = d.CPU_Usage_Pct; });
+    return {
+      label: sys,
+      data: labelKeys.map(k => byKey[k] !== undefined ? byKey[k] : null),
+      borderColor: sysColors[sys],
+      backgroundColor: sysColors[sys] + '22',
+      borderWidth: 2,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+      tension: 0.3,
+      spanGaps: false
+    };
+  }).filter(ds => ds.data.some(v => v !== null));
+
+  // Add threshold lines as extra datasets
+  datasets.push({
+    label: 'Warning (50%)',
+    data: labelKeys.map(() => 50),
+    borderColor: '#ffc107',
+    borderDash: [5, 5],
+    borderWidth: 1.5,
+    pointRadius: 0,
+    fill: false,
+    tension: 0
+  });
+  datasets.push({
+    label: 'Critical (80%)',
+    data: labelKeys.map(() => 80),
+    borderColor: '#ff4444',
+    borderDash: [5, 5],
+    borderWidth: 1.5,
+    pointRadius: 0,
+    fill: false,
+    tension: 0
+  });
+
+  if (cpuChart) {
+    cpuChart.data.labels = labels;
+    cpuChart.data.datasets = datasets;
+    cpuChart.update('active');
+  } else {
+    cpuChart = new Chart(document.getElementById('cpuChart'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#e0e0e0', font: { size: 10 } } },
+          tooltip: { mode: 'index', intersect: false }
+        },
+        scales: Object.assign({}, darkScales, {
+          y: Object.assign({}, darkScales.y, { min: 0, max: 100, title: { display: true, text: 'CPU %', color: '#a0a0b0' } })
+        })
+      }
+    });
+  }
+}
+
+// Chart 2 - Scatter/Bubble
+function updateScatterChart(data) {
+  const envGroups = {
+    Production: { color: 'rgba(66,133,244,0.7)', points: [] },
+    Test: { color: 'rgba(52,168,83,0.7)', points: [] },
+    UAT: { color: 'rgba(251,188,4,0.7)', points: [] }
+  };
+  data.forEach(d => {
+    if (envGroups[d.Environment]) {
+      envGroups[d.Environment].points.push({
+        x: d.CPU_Usage_Pct,
+        y: d.Memory_Usage_Pct,
+        r: Math.max(4, Math.sqrt(d.DASD_IO_Rate / 500)),
+        appName: d.Application_Name,
+        cpu: d.CPU_Usage_Pct,
+        mem: d.Memory_Usage_Pct,
+        dasd: d.DASD_IO_Rate
+      });
+    }
+  });
+  const datasets = Object.entries(envGroups).map(([env, cfg]) => ({
+    label: env,
+    data: cfg.points,
+    backgroundColor: cfg.color
+  }));
+
+  if (scatterChart) {
+    scatterChart.data.datasets = datasets;
+    scatterChart.update('active');
+  } else {
+    scatterChart = new Chart(document.getElementById('scatterChart'), {
+      type: 'bubble',
+      data: { datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#e0e0e0', font: { size: 11 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => {
+                const p = ctx.raw;
+                return [
+                  ctx.dataset.label + ': ' + p.appName,
+                  'CPU: ' + p.cpu + '%',
+                  'Mem: ' + p.mem + '%',
+                  'DASD I/O: ' + p.dasd.toLocaleString()
+                ];
+              }
+            }
+          }
+        },
+        scales: Object.assign({}, darkScales, {
+          x: Object.assign({}, darkScales.x, { title: { display: true, text: 'CPU %', color: '#a0a0b0' } }),
+          y: Object.assign({}, darkScales.y, { title: { display: true, text: 'Memory %', color: '#a0a0b0' } })
+        })
+      }
+    });
+  }
+}
+
+// Chart 3 - Environment Doughnut
+function updateEnvChart(data) {
+  const envs = ['Production', 'Test', 'UAT'];
+  const counts = envs.map(e => data.filter(d => d.Environment === e).length);
+  const colors = ['#4285f4', '#34a853', '#fbbc04'];
+
+  if (envChart) {
+    envChart.data.datasets[0].data = counts;
+    envChart.update('active');
+  } else {
+    envChart = new Chart(document.getElementById('envChart'), {
+      type: 'doughnut',
+      data: {
+        labels: envs,
+        datasets: [{ data: counts, backgroundColor: colors, borderColor: '#1a1a2e', borderWidth: 2 }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#e0e0e0', font: { size: 11 }, padding: 12 } }
+        }
+      }
+    });
+  }
+}
+
+// Chart 4 - Alert Level Doughnut
+function updateAlertChart(data) {
+  const levels = ['Normal', 'Warning', 'Critical'];
+  const counts = levels.map(l => data.filter(d => d.Alert_Level === l).length);
+  const colors = ['#00d4aa', '#ffc107', '#ff4444'];
+
+  if (alertChart) {
+    alertChart.data.datasets[0].data = counts;
+    alertChart.update('active');
+  } else {
+    alertChart = new Chart(document.getElementById('alertChart'), {
+      type: 'doughnut',
+      data: {
+        labels: levels,
+        datasets: [{ data: counts, backgroundColor: colors, borderColor: '#1a1a2e', borderWidth: 2 }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { color: '#e0e0e0', font: { size: 11 }, padding: 12 } }
+        }
+      }
+    });
+  }
+}
+
+// Chart 5 - Avg CPU by App Type (Horizontal Bar)
+function updateAppTypeChart(data) {
+  const types = ['CICS', 'DB2', 'IMS', 'MQ Series', 'Batch'];
+  const avgs = types.map(t => {
+    const subset = data.filter(d => d.Application_Type === t);
+    return subset.length ? +avg(subset.map(d => d.CPU_Usage_Pct)).toFixed(1) : 0;
+  });
+  const barColors = avgs.map(v => v < 50 ? '#34a853' : v <= 75 ? '#ffc107' : '#ff4444');
+
+  if (appTypeChart) {
+    appTypeChart.data.datasets[0].data = avgs;
+    appTypeChart.data.datasets[0].backgroundColor = barColors;
+    appTypeChart.update('active');
+  } else {
+    appTypeChart = new Chart(document.getElementById('appTypeChart'), {
+      type: 'bar',
+      data: {
+        labels: types,
+        datasets: [{
+          label: 'Avg CPU %',
+          data: avgs,
+          backgroundColor: barColors,
+          borderRadius: 4
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: Object.assign({}, darkScales, {
+          x: Object.assign({}, darkScales.x, { min: 0, max: 100, title: { display: true, text: 'Avg CPU %', color: '#a0a0b0' } })
+        })
+      }
+    });
+  }
+}
+
+// Chart 6 - Shift Resource Usage (Grouped Bar)
+function updateShiftChart(data) {
+  const shifts = ['Night', 'Morning', 'Afternoon', 'Evening'];
+  const avgCpus = shifts.map(s => { const sub = data.filter(d => d.Shift === s); return sub.length ? +avg(sub.map(d => d.CPU_Usage_Pct)).toFixed(1) : 0; });
+  const avgMems = shifts.map(s => { const sub = data.filter(d => d.Shift === s); return sub.length ? +avg(sub.map(d => d.Memory_Usage_Pct)).toFixed(1) : 0; });
+  const avgChans = shifts.map(s => { const sub = data.filter(d => d.Shift === s); return sub.length ? +avg(sub.map(d => d.Channel_Busy_Pct)).toFixed(1) : 0; });
+
+  const datasets = [
+    { label: 'Avg CPU %', data: avgCpus, backgroundColor: 'rgba(66,133,244,0.8)', borderRadius: 3 },
+    { label: 'Avg Memory %', data: avgMems, backgroundColor: 'rgba(156,39,176,0.8)', borderRadius: 3 },
+    { label: 'Avg Channel Busy %', data: avgChans, backgroundColor: 'rgba(0,188,212,0.8)', borderRadius: 3 }
+  ];
+
+  if (shiftChart) {
+    shiftChart.data.datasets.forEach((ds, i) => { ds.data = datasets[i].data; });
+    shiftChart.update('active');
+  } else {
+    shiftChart = new Chart(document.getElementById('shiftChart'), {
+      type: 'bar',
+      data: { labels: shifts, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#e0e0e0', font: { size: 11 } } }
+        },
+        scales: Object.assign({}, darkScales, {
+          y: Object.assign({}, darkScales.y, { min: 0, max: 100, title: { display: true, text: '%', color: '#a0a0b0' } })
+        })
+      }
+    });
+  }
+}
+
+// Chart 7 - CPU Heatmap (Manual Canvas)
+function drawHeatmap(data) {
+  const canvas = document.getElementById('heatmapCanvas');
+  const ctx = canvas.getContext('2d');
+
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const hours = Array.from({ length: 24 }, (_, i) => i);
+
+  const leftPad = 90, topPad = 30, rightPad = 10, bottomPad = 30;
+  const containerW = canvas.parentElement.clientWidth || 800;
+  const cellW = Math.floor((containerW - leftPad - rightPad) / 24);
+  const cellH = 36;
+  const canvasW = leftPad + cellW * 24 + rightPad;
+  const canvasH = topPad + cellH * days.length + bottomPad;
+
+  canvas.width = canvasW;
+  canvas.height = canvasH;
+
+  ctx.clearRect(0, 0, canvasW, canvasH);
+  ctx.fillStyle = '#0f3460';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // Build heatmap grid data
+  const grid = {};
+  days.forEach(day => {
+    hours.forEach(h => {
+      const subset = data.filter(d => d.Day === day && d.Hour === h);
+      grid[day + '_' + h] = subset.length ? avg(subset.map(d => d.CPU_Usage_Pct)) : null;
+    });
+  });
+
+  function heatColor(pct) {
+    if (pct === null) return 'rgba(255,255,255,0.04)';
+    const t = Math.min(1, Math.max(0, pct / 100));
+    if (t < 0.5) {
+      const r = Math.round(52 + (255 - 52) * (t * 2));
+      const g = Math.round(168 + (193 - 168) * (t * 2));
+      const b = Math.round(83 * (1 - t * 2));
+      return `rgb(${r},${g},${b})`;
+    } else {
+      const t2 = (t - 0.5) * 2;
+      const r = Math.round(255);
+      const g = Math.round(193 * (1 - t2) + 68 * t2);
+      const b = Math.round(7 * (1 - t2));
+      return `rgb(${r},${g},${b})`;
+    }
+  }
+
+  // Draw column headers (hours)
+  ctx.font = '9px monospace';
+  ctx.fillStyle = '#a0a0b0';
+  ctx.textAlign = 'center';
+  hours.forEach(h => {
+    const x = leftPad + h * cellW + cellW / 2;
+    ctx.fillText(h.toString().padStart(2, '0'), x, topPad - 8);
+  });
+
+  // Draw row labels and cells
+  days.forEach((day, di) => {
+    const y = topPad + di * cellH;
+    ctx.fillStyle = '#a0a0b0';
+    ctx.textAlign = 'right';
+    ctx.font = '11px sans-serif';
+    ctx.fillText(day.substring(0, 3), leftPad - 6, y + cellH / 2 + 4);
+
+    hours.forEach(h => {
+      const val = grid[day + '_' + h];
+      const x = leftPad + h * cellW;
+      ctx.fillStyle = heatColor(val);
+      ctx.fillRect(x + 1, y + 1, cellW - 2, cellH - 2);
+
+      if (val !== null && cellW >= 22) {
+        ctx.fillStyle = val > 60 ? 'rgba(0,0,0,0.8)' : 'rgba(255,255,255,0.9)';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(val.toFixed(0), x + cellW / 2, y + cellH / 2 + 3);
+      }
+    });
+  });
+
+  // Legend
+  const legendX = leftPad;
+  const legendY = canvasH - 14;
+  const legendW = Math.min(200, canvasW - leftPad - rightPad);
+  const legendH = 8;
+  const grad = ctx.createLinearGradient(legendX, 0, legendX + legendW, 0);
+  grad.addColorStop(0, '#34a853');
+  grad.addColorStop(0.5, '#ffc107');
+  grad.addColorStop(1, '#ff4444');
+  ctx.fillStyle = grad;
+  ctx.fillRect(legendX, legendY, legendW, legendH);
+  ctx.fillStyle = '#a0a0b0';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('0%', legendX, legendY - 2);
+  ctx.textAlign = 'center';
+  ctx.fillText('50%', legendX + legendW / 2, legendY - 2);
+  ctx.textAlign = 'right';
+  ctx.fillText('100%', legendX + legendW, legendY - 2);
+}
+
+// Chart 8 - MSU by LPAR
+function updateMsuChart(data) {
+  const lpars = ['LPROD1', 'LPROD2', 'LTEST1', 'LUAT1'];
+  const lparColors = ['#4285f4', '#00d4aa', '#34a853', '#fbbc04'];
+  const totals = lpars.map(lp => data.filter(d => d.LPAR_Name === lp).reduce((s, d) => s + d.CPU_MSU, 0));
+
+  const maxVal = Math.max(...totals, 400) * 1.1;
+  const annotLine = lpars.map(() => 400);
+
+  const datasets = [
+    {
+      label: 'Total MSU',
+      data: totals,
+      backgroundColor: lparColors,
+      borderRadius: 4
+    },
+    {
+      label: 'Threshold (400 MSU)',
+      data: annotLine,
+      type: 'line',
+      borderColor: '#ff4444',
+      borderDash: [6, 4],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: false,
+      tension: 0
+    }
+  ];
+
+  if (msuChart) {
+    msuChart.data.datasets[0].data = totals;
+    msuChart.data.datasets[1].data = annotLine;
+    msuChart.update('active');
+  } else {
+    msuChart = new Chart(document.getElementById('msuChart'), {
+      type: 'bar',
+      data: { labels: lpars, datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#e0e0e0', font: { size: 11 } } }
+        },
+        scales: Object.assign({}, darkScales, {
+          y: Object.assign({}, darkScales.y, { title: { display: true, text: 'Total MSU', color: '#a0a0b0' } })
+        })
+      }
+    });
+  }
+}
+
+// Table management
+function onTableSearch() {
+  tableSearchVal = document.getElementById('tableSearch').value.toLowerCase();
+  const data = getFilteredData();
+  updateTable(data);
+}
+
+function sortTable(col) {
+  if (sortCol === col) {
+    sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortCol = col;
+    sortDir = 'asc';
+  }
+  // Update header indicators
+  document.querySelectorAll('#dataTable thead th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.dataset.col === col) {
+      th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+  const data = getFilteredData();
+  updateTable(data);
+}
+
+function updateTable(data) {
+  let rows = [...data];
+
+  // Apply table search
+  if (tableSearchVal) {
+    rows = rows.filter(d => {
+      return Object.values(d).some(v =>
+        String(v).toLowerCase().includes(tableSearchVal)
+      );
+    });
+  }
+
+  // Sort
+  rows.sort((a, b) => {
+    const va = a[sortCol], vb = b[sortCol];
+    if (typeof va === 'number') return sortDir === 'asc' ? va - vb : vb - va;
+    return sortDir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
+  });
+
+  document.getElementById('recordCount').textContent = `Showing ${rows.length} of 100 records`;
+
+  const tbody = document.getElementById('tableBody');
+  tbody.innerHTML = rows.map(d => {
+    const alertClass = d.Alert_Level === 'Critical' ? 'alert-critical' : d.Alert_Level === 'Warning' ? 'alert-warning' : 'alert-normal';
+    const cpuClass = d.CPU_Usage_Pct < 50 ? 'cpu-green' : d.CPU_Usage_Pct <= 75 ? 'cpu-yellow' : 'cpu-red';
+    return `<tr>
+      <td>${d.Row}</td>
+      <td>${d.Date}</td>
+      <td>${d.Time}</td>
+      <td>${d.System_Name}</td>
+      <td>${d.LPAR_Name}</td>
+      <td>${d.Environment}</td>
+      <td>${d.Application_Name}</td>
+      <td>${d.Application_Type}</td>
+      <td class="${cpuClass}">${d.CPU_Usage_Pct.toFixed(1)}%</td>
+      <td>${d.CPU_MSU}</td>
+      <td>${d.Memory_Usage_Pct.toFixed(1)}%</td>
+      <td>${d.DASD_IO_Rate.toLocaleString()}</td>
+      <td><span class="${alertClass}">${d.Alert_Level}</span></td>
+    </tr>`;
+  }).join('');
+
+  // Update sort header if not already set
+  document.querySelectorAll('#dataTable thead th').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.dataset.col === sortCol) {
+      th.classList.add(sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+}
+
+// Initialize on load
+document.addEventListener('DOMContentLoaded', () => {
+  const now = new Date();
+  document.getElementById('lastUpdated').textContent = now.toLocaleString();
+  updateDashboard();
+});
+</script>
+</body>
+</html>
